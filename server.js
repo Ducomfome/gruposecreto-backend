@@ -1,16 +1,23 @@
-// server.js (Versão Final Completa)
+// server.js (Versão Final Correta - Use esta!)
 
 require('dotenv').config();
 const express = require('express');
 const fetch = require('node-fetch');
 const path = require('path');
-const cors = require('cors'); // Importa o pacote CORS
+const cors = require('cors'); 
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json()); // Essencial para o webhook
-app.use(cors()); // HABILITA O CORS PARA TODAS AS ROTAS!
+// ==================================================================
+//  Os 3 "Abridores de Carta" para o Webhook funcionar
+// ==================================================================
+app.use(express.json()); // Lê JSON
+app.use(express.text()); // Lê Texto Puro
+app.use(express.urlencoded({ extended: true })); // Lê Formato de Formulário
+// ==================================================================
+
+app.use(cors()); 
 
 const PUSHIN_TOKEN = process.env.PUSHIN_TOKEN;
 const paymentStatus = {};
@@ -19,9 +26,10 @@ const paymentStatus = {};
 app.post('/gerar-pix', async (req, res) => {
     try {
         const apiUrl = 'https://api.pushinpay.com.br/api/pix/cashIn';
+        
+        // CORRETO: Não enviamos o webhook_url aqui
         const paymentData = {
-            value: 1999,
-            webhook_url: `https://gruposecreto-backend.onrender.com/webhook-pushinpay` 
+            value: 1999 // Mude o valor aqui se precisar
         };
 
         const response = await fetch(apiUrl, {
@@ -44,7 +52,7 @@ app.post('/gerar-pix', async (req, res) => {
         console.log(`✅ PIX gerado com sucesso! ID: ${data.id}`);
 
         res.json({
-            paymentId: data.id, // <-- Agora ele retorna o ID
+            paymentId: data.id,
             qrCodeBase64: data.qr_code_base64,
             copiaECola: data.qr_code
         });
@@ -55,7 +63,7 @@ app.post('/gerar-pix', async (req, res) => {
     }
 });
 
-// ROTA DO WEBHOOK
+// ROTA DO WEBHOOK (Onde a PushinPay vai te avisar)
 app.post('/webhook-pushinpay', (req, res) => {
     console.log("Webhook da PushinPay recebido!");
     let webhookData = req.body;
@@ -66,10 +74,23 @@ app.post('/webhook-pushinpay', (req, res) => {
     
     console.log("Dados do Webhook:", webhookData);
 
-    if (webhookData && webhookData.status === 'paid' && webhookData.id) {
-        console.log(`Pagamento ${webhookData.id} foi confirmado!`);
-        paymentStatus[webhookData.id] = 'paid';
+    let paymentId = null;
+    let paymentStatusReceived = null;
+
+    if (webhookData && webhookData.id) {
+        paymentId = webhookData.id;
+        paymentStatusReceived = webhookData.status;
+    } else if (webhookData && webhookData.data) { // Algumas APIs mandam dentro de um "data"
+        paymentId = webhookData.data.id;
+        paymentStatusReceived = webhookData.data.status;
     }
+    // ... (outras verificações se necessário) ...
+
+    if (paymentStatusReceived === 'paid' && paymentId) {
+        console.log(`Pagamento ${paymentId} foi confirmado!`);
+        paymentStatus[paymentId] = 'paid';
+    }
+
     res.status(200).send('OK');
 });
 
@@ -79,7 +100,6 @@ app.get('/check-status/:paymentId', (req, res) => {
     const status = paymentStatus[paymentId] || 'not_found';
     res.json({ status: status });
 });
-
 
 app.listen(PORT, () => {
     console.log(`Servidor rodando na porta ${PORT}`);
