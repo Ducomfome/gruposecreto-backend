@@ -22,7 +22,7 @@ app.post('/gerar-pix', async (req, res) => {
     try {
         const apiUrl = 'https://api.pushinpay.com.br/api/pix/cashIn';
         const paymentData = {
-            value: 199,
+            value: 999,
             webhook_url: `https://gruposecreto-backend.onrender.com/webhook-pushinpay` // NOVO WEBHOOK
         };
 
