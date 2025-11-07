@@ -1,6 +1,5 @@
-// server.js (VERSÃO CORRIGIDA - Para o outro cliente)
+// server.js (VERSÃO FINAL SEM DOTENV - PARA RENDER)
 
-require('dotenv').config();
 const express = require('express');
 const fetch = require('node-fetch');
 const path = require('path');
@@ -9,21 +8,60 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// MIDDLEWARE CORRIGIDO - Adiciona suporte para x-www-form-urlencoded
-app.use(express.urlencoded({ extended: true })); // ← NOVO
+// MIDDLEWARE
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(cors());
 
+// VARIÁVEIS DE AMBIENTE (Render Environment)
 const PUSHIN_TOKEN = process.env.PUSHIN_TOKEN;
+const FACEBOOK_ACCESS_TOKEN = process.env.FACEBOOK_ACCESS_TOKEN;
+const FACEBOOK_PIXEL_ID = '792797553335143';
+
 const paymentStatus = {};
 
-// Rota para GERAR O PIX (COM ID NORMALIZADO)
+// ===========================================
+// CONFIGURAÇÃO DO PIXEL FACEBOOK (SERVER-SIDE)
+// ===========================================
+
+// Função para disparar evento no Facebook Pixel (Server-Side)
+async function trackFacebookEvent(eventName, parameters = {}) {
+    try {
+        const response = await fetch(`https://graph.facebook.com/v17.0/${FACEBOOK_PIXEL_ID}/events`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                data: [{
+                    event_name: eventName,
+                    event_time: Math.floor(Date.now() / 1000),
+                    action_source: "website",
+                    user_data: {
+                        client_ip_address: parameters.ip || "0.0.0.0",
+                        client_user_agent: parameters.user_agent || "unknown"
+                    },
+                    custom_data: parameters.custom_data || {}
+                }],
+                access_token: FACEBOOK_ACCESS_TOKEN
+            })
+        });
+
+        const result = await response.json();
+        console.log(`✅ Facebook Pixel (${eventName}):`, result);
+        return result;
+    } catch (error) {
+        console.error(`❌ Erro no Facebook Pixel (${eventName}):`, error.message);
+    }
+}
+
+// ROTA PARA GERAR O PIX
 app.post('/gerar-pix', async (req, res) => {
     try {
         const apiUrl = 'https://api.pushinpay.com.br/api/pix/cashIn';
         const paymentData = {
-            value: 1999,
-            webhook_url: `https://gruposecreto-backend.onrender.com/webhook-pushinpay` // NOVO WEBHOOK
+            value: 1999, // R$ 19,99 em centavos
+            webhook_url: `https://gruposecreto-backend.onrender.com/webhook-pushinpay`
         };
 
         const response = await fetch(apiUrl, {
@@ -42,14 +80,21 @@ app.post('/gerar-pix', async (req, res) => {
             throw new Error(data.message || 'Resposta inválida da API');
         }
 
-        // CORREÇÃO: Normaliza o ID para minúsculas
         const normalizedId = data.id.toLowerCase();
         paymentStatus[normalizedId] = "created";
         
         console.log(`✅ PIX gerado com sucesso! ID: ${normalizedId}`);
 
+        // 🔥 MARCA AddToCart NO PIXEL (SERVER-SIDE)
+        await trackFacebookEvent('AddToCart', {
+            custom_data: {
+                currency: 'BRL',
+                value: 19.99 // Valor correto em decimal
+            }
+        });
+
         res.json({
-            paymentId: normalizedId, // Retorna em minúsculas
+            paymentId: normalizedId,
             qrCodeBase64: data.qr_code_base64,
             copiaECola: data.qr_code
         });
@@ -60,17 +105,13 @@ app.post('/gerar-pix', async (req, res) => {
     }
 });
 
-// ROTA DO WEBHOOK - VERSÃO CORRIGIDA
-app.post('/webhook-pushinpay', (req, res) => {
+// ROTA DO WEBHOOK - VERSÃO COM PIXEL
+app.post('/webhook-pushinpay', async (req, res) => {
     console.log("Webhook da PushinPay recebido!");
-    
-    // DEBUG: Log dos headers para verificar
-    console.log("Content-Type:", req.headers['content-type']);
     
     let webhookData = req.body;
     console.log("Dados do Webhook (bruto):", webhookData);
 
-    // CORREÇÃO: Se vier como string, faz parse
     if (typeof webhookData === 'string') {
         try {
             webhookData = JSON.parse(webhookData);
@@ -81,9 +122,8 @@ app.post('/webhook-pushinpay', (req, res) => {
 
     console.log("Dados do Webhook (processado):", webhookData);
 
-    // CORREÇÃO: Normaliza o ID e verifica status
     if (webhookData && webhookData.id) {
-        const normalizedId = webhookData.id.toLowerCase(); // ← CORREÇÃO DO ID
+        const normalizedId = webhookData.id.toLowerCase();
         
         console.log(`🎉 Webhook recebido - ID: ${normalizedId}, Status: ${webhookData.status}`);
         
@@ -92,6 +132,17 @@ app.post('/webhook-pushinpay', (req, res) => {
             console.log(`💰 PAGAMENTO CONFIRMADO: ${normalizedId}`);
             console.log(`👤 Pagador: ${webhookData.payer_name}`);
             console.log(`💳 Valor: R$ ${(webhookData.value / 100).toFixed(2)}`);
+
+            // 🔥🔥🔥 MARCA PURCHASE NO PIXEL (SERVER-SIDE) - 100% GARANTIDO
+            await trackFacebookEvent('Purchase', {
+                custom_data: {
+                    currency: 'BRL',
+                    value: 19.99, // Valor correto R$ 19,99
+                    transaction_id: normalizedId
+                }
+            });
+            
+            console.log(`🎯 Purchase disparado para: ${normalizedId}`);
         } else {
             paymentStatus[normalizedId] = webhookData.status;
             console.log(`Status atualizado: ${normalizedId} -> ${webhookData.status}`);
@@ -101,9 +152,8 @@ app.post('/webhook-pushinpay', (req, res) => {
     res.status(200).json({ success: true, message: "Webhook processado" });
 });
 
-// ROTA DE VERIFICAÇÃO DE STATUS - VERSÃO CORRIGIDA
+// ROTA DE VERIFICAÇÃO DE STATUS
 app.get('/check-status/:paymentId', (req, res) => {
-    // CORREÇÃO: Normaliza o ID para minúsculas
     const paymentId = req.params.paymentId.toLowerCase();
     const status = paymentStatus[paymentId] || 'not_found';
     
@@ -126,7 +176,6 @@ app.get('/payments', (req, res) => {
 app.get('/', (req, res) => {
     res.json({ 
         message: 'Sistema de PIX funcionando!',
-        webhook: 'https://webhook.site/20cbcf2d-6741-4af2-9e3d-1ea49894b6b0',
         endpoints: {
             gerarPix: 'POST /gerar-pix',
             webhook: 'POST /webhook-pushinpay',
@@ -138,5 +187,5 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`🚀 Servidor rodando na porta ${PORT}`);
-    console.log(`📍 Webhook externo: https://webhook.site/20cbcf2d-6741-4af2-9e3d-1ea49894b6b0`);
+    console.log(`🎯 Facebook Pixel configurado: ${FACEBOOK_PIXEL_ID}`);
 });
