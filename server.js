@@ -1,4 +1,4 @@
-// server.js (VERSÃO FINAL SEM DOTENV - PARA RENDER)
+// server.js (VERSÃO FINAL SEM MARCAÇÃO FB - SÓ UTMIFY)
 
 const express = require('express');
 const fetch = require('node-fetch');
@@ -15,45 +15,13 @@ app.use(cors());
 
 // VARIÁVEIS DE AMBIENTE (Render Environment)
 const PUSHIN_TOKEN = process.env.PUSHIN_TOKEN;
-const FACEBOOK_ACCESS_TOKEN = process.env.FACEBOOK_ACCESS_TOKEN;
-const FACEBOOK_PIXEL_ID = '792797553335143';
+// Chaves do Facebook foram removidas
 
 const paymentStatus = {};
 
 // ===========================================
-// CONFIGURAÇÃO DO PIXEL FACEBOOK (SERVER-SIDE)
+// FUNÇÃO DE RASTREAMENTO DO FB REMOVIDA
 // ===========================================
-
-// Função para disparar evento no Facebook Pixel (Server-Side)
-async function trackFacebookEvent(eventName, parameters = {}) {
-    try {
-        const response = await fetch(`https://graph.facebook.com/v17.0/${FACEBOOK_PIXEL_ID}/events`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                data: [{
-                    event_name: eventName,
-                    event_time: Math.floor(Date.now() / 1000),
-                    action_source: "website",
-                    user_data: {
-                        client_ip_address: parameters.ip || "0.0.0.0",
-                        client_user_agent: parameters.user_agent || "unknown"
-                    },
-                    custom_data: parameters.custom_data || {}
-                }],
-                access_token: FACEBOOK_ACCESS_TOKEN
-            })
-        });
-
-        const result = await response.json();
-        console.log(`✅ Facebook Pixel (${eventName}):`, result);
-        return result;
-    } catch (error) {
-        console.error(`❌ Erro no Facebook Pixel (${eventName}):`, error.message);
-    }
-}
 
 // ROTA PARA GERAR O PIX
 app.post('/gerar-pix', async (req, res) => {
@@ -85,13 +53,7 @@ app.post('/gerar-pix', async (req, res) => {
         
         console.log(`✅ PIX gerado com sucesso! ID: ${normalizedId}`);
 
-        // 🔥 MARCA AddToCart NO PIXEL (SERVER-SIDE)
-        await trackFacebookEvent('AddToCart', {
-            custom_data: {
-                currency: 'BRL',
-                value: 19.99 // Valor correto em decimal
-            }
-        });
+        // 🔥 MARCAÇÃO AddToCart REMOVIDA DAQUI
 
         res.json({
             paymentId: normalizedId,
@@ -105,7 +67,7 @@ app.post('/gerar-pix', async (req, res) => {
     }
 });
 
-// ROTA DO WEBHOOK - VERSÃO COM PIXEL
+// ROTA DO WEBHOOK - VERSÃO SEM PIXEL
 app.post('/webhook-pushinpay', async (req, res) => {
     console.log("Webhook da PushinPay recebido!");
     
@@ -133,16 +95,9 @@ app.post('/webhook-pushinpay', async (req, res) => {
             console.log(`👤 Pagador: ${webhookData.payer_name}`);
             console.log(`💳 Valor: R$ ${(webhookData.value / 100).toFixed(2)}`);
 
-            // 🔥🔥🔥 MARCA PURCHASE NO PIXEL (SERVER-SIDE) - 100% GARANTIDO
-            await trackFacebookEvent('Purchase', {
-                custom_data: {
-                    currency: 'BRL',
-                    value: 19.99, // Valor correto R$ 19,99
-                    transaction_id: normalizedId
-                }
-            });
+            // 🔥🔥🔥 MARCAÇÃO PURCHASE REMOVIDA DAQUI
             
-            console.log(`🎯 Purchase disparado para: ${normalizedId}`);
+            console.log(`Status de pagamento salvo para: ${normalizedId}`);
         } else {
             paymentStatus[normalizedId] = webhookData.status;
             console.log(`Status atualizado: ${normalizedId} -> ${webhookData.status}`);
@@ -187,5 +142,4 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`🚀 Servidor rodando na porta ${PORT}`);
-    console.log(`🎯 Facebook Pixel configurado: ${FACEBOOK_PIXEL_ID}`);
 });
